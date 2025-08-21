@@ -24,6 +24,16 @@ st.sidebar.title("Configuration Parameters")
 # File upload
 uploaded_file = st.sidebar.file_uploader("Upload CSV file", type=["csv"])
 
+# Initialize default column names
+vp_col = 'VP'
+vs_col = 'VS'
+rho_col = 'RHOB'
+depth_col = 'DEPTH'
+gr_col = None
+phi_col = None
+sw_col = None
+rt_col = None
+
 # Wavelet parameters
 st.sidebar.header("Wavelet Settings")
 wavelet_type = st.sidebar.selectbox("Wavelet Type", ["ricker", "bandpass"], index=0)
@@ -47,9 +57,9 @@ colormap = st.sidebar.selectbox("Colormap",
                                ["RdBu", "Viridis", "Plasma", "Inferno", "Magma", "Coolwarm", "Spectral"],
                                index=0)
 
-# Manual column selection
-st.sidebar.header("Column Mapping")
+# Manual column selection (only show if file is uploaded)
 if uploaded_file is not None:
+    st.sidebar.header("Column Mapping")
     try:
         df_preview = pd.read_csv(uploaded_file)
         available_columns = df_preview.columns.tolist()
@@ -428,14 +438,14 @@ def main():
     st.subheader("Interface Analysis")
     interface_depth = st.slider(
         "Select Interface Depth", 
-        min_value=float(result_df['DEPTH'].min()),
-        max_value=float(result_df['DEPTH'].max()),
-        value=float(result_df['DEPTH'].iloc[1000]),
+        min_value=float(result_df[depth_col].min()),
+        max_value=float(result_df[depth_col].max()),
+        value=float(result_df[depth_col].iloc[1000]),
         step=0.5
     )
     
     # Find closest depth index
-    interface_idx = (np.abs(result_df['DEPTH'] - interface_depth)).argmin()
+    interface_idx = (np.abs(result_df[depth_col] - interface_depth)).argmin()
     
     if interface_idx < len(result_df) - 1:
         # Get properties for the interface
