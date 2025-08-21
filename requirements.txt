@@ -1,0 +1,7 @@
+numpy
+matplotlib
+lasio
+bokeh==2.4.3 
+pandas
+streamlit 
+streamlit-bokeh-events
