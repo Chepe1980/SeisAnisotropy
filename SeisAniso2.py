@@ -262,6 +262,75 @@ def avo_classification(vp1, vs1, rho1, vp2, vs2, rho2):
     else:
         return "Class IV" if vp_vs2 > vp_vs1 else "Class III"
 
+# ==================== MAIN PROCESSING FUNCTION ====================
+def main_processing(df, vp_col='VP', vs_col='VS', rho_col='RHOB', vclay_col='VCLAY', phi_col='PHIT'):
+    """
+    Main processing function to calculate VTI parameters and attribute ratios
+    """
+    result_df = df.copy()
+    
+    # Extract arrays for processing
+    vp = result_df[vp_col].values
+    vs = result_df[vs_col].values
+    rho = result_df[rho_col].values
+    
+    # Handle optional parameters with default values
+    if vclay_col in result_df.columns:
+        vclay = result_df[vclay_col].values
+    else:
+        vclay = np.zeros(len(result_df))
+        
+    if phi_col in result_df.columns:
+        phi = result_df[phi_col].values
+    else:
+        phi = np.zeros(len(result_df))
+    
+    # Estimate Thomsen parameters
+    epsilon, gamma, delta = estimate_thomsen_from_logs(vp, vs, vclay, phi)
+    
+    # Calculate elastic constants
+    elastic_constants = calculate_elastic_constants(vp, vs, rho, epsilon, gamma, delta)
+    
+    # Add Thomsen parameters to result dataframe
+    result_df['EPSILON'] = epsilon
+    result_df['GAMMA'] = gamma
+    result_df['DELTA'] = delta
+    
+    # Add elastic constants to result dataframe
+    for key, value in elastic_constants.items():
+        result_df[key] = value
+    
+    # Calculate attribute ratios (A, B, C ratios)
+    # These are simplified approximations for the VTI reflection coefficient
+    
+    # A ratio: related to impedance contrast (ΔZ/Z)
+    # Using finite difference to approximate the derivative
+    impedance = vp * rho
+    d_impedance = np.gradient(impedance)
+    result_df['A_ratio'] = d_impedance / (impedance + 1e-10)  # Avoid division by zero
+    
+    # B ratio: related to shear modulus contrast (Δμ/μ)
+    shear_modulus = rho * vs**2
+    d_shear_modulus = np.gradient(shear_modulus)
+    result_df['B_ratio'] = d_shear_modulus / (shear_modulus + 1e-10)
+    
+    # C ratio: related to anisotropy contrast (Δε/ε)
+    # Using epsilon as a proxy for anisotropy contrast
+    d_epsilon = np.gradient(epsilon)
+    result_df['C_ratio'] = d_epsilon / (epsilon + 1e-10)
+    
+    # Calculate additional useful parameters
+    result_df['VP_VS_RATIO'] = vp / vs
+    result_df['ACOUSTIC_IMPEDANCE'] = impedance
+    result_df['SHEAR_IMPEDANCE'] = vs * rho
+    result_df['LAME_PARAMETER'] = rho * (vp**2 - 2 * vs**2)
+    result_df['SHEAR_MODULUS'] = shear_modulus
+    
+    # Calculate reflectivity series (simplified)
+    result_df['RC_ISOTROPIC'] = 0.5 * np.gradient(np.log(impedance))
+    
+    return result_df
+
 # ==================== PLOTLY VISUALIZATION FUNCTIONS ====================
 def plot_angle_gather(angle_axis, depth_axis, synthetic_gather, title, colormap='RdBu'):
     """Plot angle gather synthetic seismic section"""
