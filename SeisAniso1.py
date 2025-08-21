@@ -2,12 +2,8 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from scipy.optimize import curve_fit
 from scipy import signal
 from scipy.interpolate import interp1d
-import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
 import io
 
 # Set page configuration
@@ -65,35 +61,41 @@ if uploaded_file is not None:
         if uploaded_file.size == 0:
             st.sidebar.error("Uploaded file is empty")
         else:
-            # Try to read the CSV file
-            df_preview = pd.read_csv(uploaded_file)
-            
-            if df_preview.empty:
-                st.sidebar.error("CSV file contains no data")
-            else:
-                available_columns = df_preview.columns.tolist()
+            # Try to read the CSV file with error handling
+            try:
+                df_preview = pd.read_csv(uploaded_file)
                 
-                depth_col = st.sidebar.selectbox("Depth Column", available_columns, 
-                                               index=available_columns.index('DEPTH') if 'DEPTH' in available_columns else 0)
-                vp_col = st.sidebar.selectbox("VP Column", available_columns, 
-                                            index=available_columns.index('VP') if 'VP' in available_columns else 0)
-                vs_col = st.sidebar.selectbox("VS Column", available_columns, 
-                                            index=available_columns.index('VS') if 'VS' in available_columns else 1)
-                rho_col = st.sidebar.selectbox("Density Column", available_columns, 
-                                             index=available_columns.index('RHOB') if 'RHOB' in available_columns else 2)
-                
-                # Optional columns
-                gr_col = st.sidebar.selectbox("GR Column (optional)", [None] + available_columns, 
-                                            index=0)
-                phi_col = st.sidebar.selectbox("Porosity Column (optional)", [None] + available_columns, 
-                                             index=0)
-                sw_col = st.sidebar.selectbox("SW Column (optional)", [None] + available_columns, 
-                                            index=0)
-                rt_col = st.sidebar.selectbox("RT Column (optional)", [None] + available_columns, 
-                                            index=0)
+                if df_preview.empty:
+                    st.sidebar.error("CSV file contains no data")
+                else:
+                    available_columns = df_preview.columns.tolist()
+                    
+                    depth_col = st.sidebar.selectbox("Depth Column", available_columns, 
+                                                   index=available_columns.index('DEPTH') if 'DEPTH' in available_columns else 0)
+                    vp_col = st.sidebar.selectbox("VP Column", available_columns, 
+                                                index=available_columns.index('VP') if 'VP' in available_columns else 0)
+                    vs_col = st.sidebar.selectbox("VS Column", available_columns, 
+                                                index=available_columns.index('VS') if 'VS' in available_columns else 1)
+                    rho_col = st.sidebar.selectbox("Density Column", available_columns, 
+                                                 index=available_columns.index('RHOB') if 'RHOB' in available_columns else 2)
+                    
+                    # Optional columns
+                    gr_col = st.sidebar.selectbox("GR Column (optional)", [None] + available_columns, 
+                                                index=0)
+                    phi_col = st.sidebar.selectbox("Porosity Column (optional)", [None] + available_columns, 
+                                                 index=0)
+                    sw_col = st.sidebar.selectbox("SW Column (optional)", [None] + available_columns, 
+                                                index=0)
+                    rt_col = st.sidebar.selectbox("RT Column (optional)", [None] + available_columns, 
+                                                index=0)
+                    
+            except pd.errors.EmptyDataError:
+                st.sidebar.error("CSV file is empty or contains no columns")
+            except Exception as e:
+                st.sidebar.error(f"Error reading CSV file: {str(e)}")
                 
     except Exception as e:
-        st.sidebar.error(f"Error reading file: {str(e)}")
+        st.sidebar.error(f"Error processing file: {str(e)}")
 
 # ==================== WAVELET GENERATION ====================
 def generate_ricker_wavelet(frequency, length, dt):
@@ -534,24 +536,31 @@ def main():
         
         # Generate or load data
         use_synthetic = True
+        df = None
+        
         if uploaded_file is not None:
             try:
                 # Check if file is not empty
                 if uploaded_file.size == 0:
                     st.error("Uploaded file is empty. Using synthetic data instead.")
                 else:
-                    # Try to read the CSV file
-                    df = pd.read_csv(uploaded_file)
-                    
-                    if df.empty:
-                        st.error("CSV file contains no data. Using synthetic data instead.")
-                    else:
-                        st.success("CSV file loaded successfully!")
-                        use_synthetic = False
+                    # Try to read the CSV file with proper error handling
+                    try:
+                        df = pd.read_csv(uploaded_file)
+                        
+                        if df.empty:
+                            st.error("CSV file contains no data. Using synthetic data instead.")
+                        else:
+                            st.success("CSV file loaded successfully!")
+                            use_synthetic = False
+                    except pd.errors.EmptyDataError:
+                        st.error("CSV file is empty or contains no columns. Using synthetic data instead.")
+                    except Exception as e:
+                        st.error(f"Error reading CSV file: {str(e)}. Using synthetic data instead.")
             except Exception as e:
-                st.error(f"Error reading CSV file: {str(e)}. Using synthetic data instead.")
+                st.error(f"Error processing file: {str(e)}. Using synthetic data instead.")
         
-        if use_synthetic:
+        if use_synthetic or df is None:
             # Generate synthetic data
             st.info("Using synthetic data for demonstration")
             depth = np.arange(1000, 3000, 0.5)
