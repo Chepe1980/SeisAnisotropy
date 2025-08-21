@@ -361,242 +361,360 @@ def plot_avo_response(angles_deg, rc_vti, rc_iso, avo_class, interface_depth):
     )
     return fig
 
+# ==================== GUIDE AND THEORY CONTENT ====================
+def show_guide_and_theory():
+    """Display user guide and theoretical background"""
+    st.header("📖 User Guide & Theoretical Background")
+    
+    tab1, tab2, tab3 = st.tabs(["User Guide", "Theory", "References"])
+    
+    with tab1:
+        st.subheader("User Guide")
+        st.markdown("""
+        ### How to Use This App
+        
+        1. **Upload Data**: Use the sidebar to upload a CSV file with well log data
+        2. **Configure Parameters**: Adjust wavelet settings, angle range, and display options
+        3. **Map Columns**: If uploading data, map the correct columns for VP, VS, RHOB, etc.
+        4. **Select Interface**: Use the slider to choose the depth interface to analyze
+        5. **Analyze Results**: View AVO responses and synthetic seismic gathers
+        6. **Download Results**: Export analysis results and summary reports
+        
+        ### Required Data Format
+        - CSV file with columns: DEPTH, VP, VS, RHOB
+        - Optional columns: GR, PHIT, SW, RT, VCLAY
+        
+        ### Default Values
+        - If no file is uploaded, synthetic data will be generated
+        - Missing optional parameters will be estimated from available data
+        """)
+    
+    with tab2:
+        st.subheader("Theoretical Background")
+        st.markdown("""
+        ### VTI Anisotropy Theory
+        
+        **Transverse Isotropy with Vertical Axis (VTI)** media are characterized by:
+        - Rotational symmetry around the vertical axis
+        - Different velocities in horizontal vs vertical directions
+        - Five independent elastic constants: c₁₁, c₁₃, c₃₃, c₄₄, c₆₆
+        
+        ### Thomsen Parameters
+        Thomsen (1986) introduced three dimensionless parameters to describe weak anisotropy:
+        
+        - **ε (Epsilon)**: P-wave anisotropy parameter
+          $$ε = \\frac{c_{11} - c_{33}}{2c_{33}}$$
+        
+        - **γ (Gamma)**: S-wave anisotropy parameter  
+          $$γ = \\frac{c_{66} - c_{44}}{2c_{44}}$$
+        
+        - **δ (Delta)**: Near-vertical anisotropy parameter
+          $$δ = \\frac{(c_{13} + c_{44})^2 - (c_{33} - c_{44})^2}{2c_{33}(c_{33} - c_{44})}$$
+        
+        ### Reflection Coefficient Formulation
+        The VTI reflection coefficient is given by:
+        
+        $$R_{VTI}(θ) = \\frac{1}{2} \\frac{Δ(ρV_{P0})}{ρV_{P0}} - \\frac{1}{2} K \\sin^2θ \\left[\\frac{Δ(ρV_{S0}^2 e^{σ/4})}{ρV_{S0}^2 e^{σ/4}}\\right] + \\frac{1}{2} \\tan^2θ \\frac{Δ(V_{P0} e^ε)}{V_{P0} e^ε}$$
+        
+        Where $K = (2V_{S0}/V_{P0})^2$ and $σ = (V_{P0}/V_{S0})^2(ε - δ)$
+        
+        ### AVO Classification
+        - **Class I**: High impedance contrast, positive intercept
+        - **Class II**: Near-zero impedance contrast  
+        - **Class III**: Low impedance contrast, negative intercept
+        - **Class IV**: Very low impedance contrast, negative gradient
+        """)
+    
+    with tab3:
+        st.subheader("References")
+        st.markdown("""
+        ### Key References
+        
+        1. **Thomsen, L. (1986)**
+           *"Weak elastic anisotropy"*
+           Geophysics, 51(10), 1954-1966
+        
+        2. **Rüger, A. (1997)**
+           *"P-wave reflection coefficients for transversely isotropic models with vertical and horizontal axis of symmetry"*
+           Geophysics, 62(3), 713-722
+        
+        3. **Aki, K., and Richards, P.G. (1980)**
+           *"Quantitative Seismology: Theory and Methods"*
+           W.H. Freeman and Company
+        
+        4. **Zhang, F., Zhang, T., and Li, X.Y. (2013)**
+           *"A new approximation for PP-wave reflection coefficient in VTI media"*
+           Geophysical Prospecting, 61(2), 237-248
+        
+        5. **Tsvankin, I. (2012)**
+           *"Seismic Signatures and Analysis of Reflection Data in Anisotropic Media"*
+           Society of Exploration Geophysicists
+        
+        ### Software Implementation
+        - This app uses Python with Streamlit for the web interface
+        - Scientific computing with NumPy, SciPy, and Pandas
+        - Visualization with Plotly for interactive graphs
+        - Wavelet generation using Ricker and bandpass filters
+        """)
+
 # ==================== STREAMLIT APP MAIN ====================
 def main():
-    st.title("🎯 VTI Anisotropy Analysis with Synthetic Seismic")
+    # Create tabs for different sections
+    tab1, tab2 = st.tabs(["Analysis", "Guide & Theory"])
     
-    # Generate or load data
-    if uploaded_file is not None:
-        try:
-            # Check if file is not empty
-            if uploaded_file.size == 0:
-                st.error("Uploaded file is empty. Using synthetic data instead.")
-                use_synthetic = True
-            else:
-                # Try to read the CSV file
-                df = pd.read_csv(uploaded_file)
-                
-                if df.empty:
-                    st.error("CSV file contains no data. Using synthetic data instead.")
+    with tab1:
+        st.title("🎯 VTI Anisotropy Analysis with Synthetic Seismic")
+        
+        # Generate or load data
+        if uploaded_file is not None:
+            try:
+                # Check if file is not empty
+                if uploaded_file.size == 0:
+                    st.error("Uploaded file is empty. Using synthetic data instead.")
                     use_synthetic = True
                 else:
-                    st.success("CSV file loaded successfully!")
-                    use_synthetic = False
-        except Exception as e:
-            st.error(f"Error reading CSV file: {str(e)}. Using synthetic data instead.")
+                    # Try to read the CSV file
+                    df = pd.read_csv(uploaded_file)
+                    
+                    if df.empty:
+                        st.error("CSV file contains no data. Using synthetic data instead.")
+                        use_synthetic = True
+                    else:
+                        st.success("CSV file loaded successfully!")
+                        use_synthetic = False
+            except Exception as e:
+                st.error(f"Error reading CSV file: {str(e)}. Using synthetic data instead.")
+                use_synthetic = True
+        else:
             use_synthetic = True
-    else:
-        use_synthetic = True
-    
-    if use_synthetic:
-        # Generate synthetic data
-        st.info("Using synthetic data for demonstration")
-        depth = np.arange(1000, 3000, 0.5)
-        vp = 2000 + 1.5 * (depth - 1000) / 10 + np.random.normal(0, 50, len(depth))
-        vs = vp / 1.7 + np.random.normal(0, 30, len(depth))
-        rho = 2.1 + 0.0004 * (depth - 1000) + np.random.normal(0, 0.05, len(depth))
         
-        df = pd.DataFrame({
-            'DEPTH': depth,
-            'VP': vp,
-            'VS': vs,
-            'RHOB': rho,
-        })
-    
-    # Preprocess logs
-    processed_df, vclay_col_used, phi_col_used = preprocess_logs(
-        df, 
-        vp_col=vp_col, 
-        vs_col=vs_col, 
-        rho_col=rho_col,
-        gr_col=gr_col,
-        phi_col=phi_col
-    )
-    
-    # Process the data
-    result_df = main_processing(
-        processed_df, 
-        vp_col=vp_col, 
-        vs_col=vs_col, 
-        rho_col=rho_col, 
-        vclay_col=vclay_col_used, 
-        phi_col=phi_col_used
-    )
-    
-    # Generate wavelet
-    wavelet = generate_wavelet(
-        wavelet_type=wavelet_type,
-        frequency=wavelet_frequency,
-        freq_low=freq_low,
-        freq_high=freq_high,
-        length=wavelet_length,
-        dt=dt
-    )
-    
-    # Display wavelet info
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Wavelet Information")
-        st.write(f"**Type:** {wavelet_type}")
-        st.write(f"**Frequency:** {wavelet_frequency} Hz")
-        st.write(f"**Length:** {len(wavelet)} samples")
-        st.write(f"**Max Amplitude:** {np.max(np.abs(wavelet)):.3f}")
-    
-    with col2:
-        fig_wavelet = go.Figure()
-        fig_wavelet.add_trace(go.Scatter(
-            y=wavelet,
-            mode='lines',
-            name='Wavelet',
-            line=dict(color='blue', width=2)
-        ))
-        fig_wavelet.update_layout(
-            title="Generated Wavelet",
-            xaxis_title="Samples",
-            yaxis_title="Amplitude",
-            height=300
+        if use_synthetic:
+            # Generate synthetic data
+            st.info("Using synthetic data for demonstration")
+            depth = np.arange(1000, 3000, 0.5)
+            vp = 2000 + 1.5 * (depth - 1000) / 10 + np.random.normal(0, 50, len(depth))
+            vs = vp / 1.7 + np.random.normal(0, 30, len(depth))
+            rho = 2.1 + 0.0004 * (depth - 1000) + np.random.normal(0, 0.05, len(depth))
+            
+            df = pd.DataFrame({
+                'DEPTH': depth,
+                'VP': vp,
+                'VS': vs,
+                'RHOB': rho,
+            })
+        
+        # Preprocess logs
+        processed_df, vclay_col_used, phi_col_used = preprocess_logs(
+            df, 
+            vp_col=vp_col, 
+            vs_col=vs_col, 
+            rho_col=rho_col,
+            gr_col=gr_col,
+            phi_col=phi_col
         )
-        st.plotly_chart(fig_wavelet, use_container_width=True)
-    
-    # Interface selection
-    st.subheader("Interface Analysis")
-    
-    # Ensure we have valid depth data
-    if depth_col not in result_df.columns:
-        st.error(f"Depth column '{depth_col}' not found in data")
-        return
-    
-    interface_depth = st.slider(
-        "Select Interface Depth", 
-        min_value=float(result_df[depth_col].min()),
-        max_value=float(result_df[depth_col].max()),
-        value=float(result_df[depth_col].iloc[min(1000, len(result_df)-2)]),
-        step=0.5
-    )
-    
-    # Find closest depth index
-    interface_idx = (np.abs(result_df[depth_col] - interface_depth)).argmin()
-    
-    if interface_idx < len(result_df) - 1:
-        # Get properties for the interface
-        vp1 = result_df[vp_col].iloc[interface_idx]
-        vs1 = result_df[vs_col].iloc[interface_idx]
-        rho1 = result_df[rho_col].iloc[interface_idx] * 1000
         
-        vp2 = result_df[vp_col].iloc[interface_idx + 1]
-        vs2 = result_df[vs_col].iloc[interface_idx + 1]
-        rho2 = result_df[rho_col].iloc[interface_idx + 1] * 1000
+        # Process the data
+        result_df = main_processing(
+            processed_df, 
+            vp_col=vp_col, 
+            vs_col=vs_col, 
+            rho_col=rho_col, 
+            vclay_col=vclay_col_used, 
+            phi_col=phi_col_used
+        )
         
-        # Calculate K value
-        vp_avg = (vp1 + vp2) / 2
-        vs_avg = (vs1 + vs2) / 2
-        K = (2 * vs_avg / vp_avg)**2
+        # Generate wavelet
+        wavelet = generate_wavelet(
+            wavelet_type=wavelet_type,
+            frequency=wavelet_frequency,
+            freq_low=freq_low,
+            freq_high=freq_high,
+            length=wavelet_length,
+            dt=dt
+        )
         
-        # Get attribute ratios
-        A_ratio = result_df['A_ratio'].iloc[interface_idx]
-        B_ratio = result_df['B_ratio'].iloc[interface_idx]
-        C_ratio = result_df['C_ratio'].iloc[interface_idx]
-        
-        # Generate reflection coefficients
-        angles_deg = np.arange(angle_range_min, angle_range_max + angle_sampling, angle_sampling)
-        angles_rad = np.radians(angles_deg)
-        
-        rc_vti = vti_reflection_coefficient(angles_rad, A_ratio, B_ratio, C_ratio, K)
-        rc_iso = aki_richards_reflection_coefficient(angles_rad, vp1, vp2, vs1, vs2, rho1, rho2)
-        
-        # AVO classification
-        avo_class = avo_classification(vp1, vs1, rho1/1000, vp2, vs2, rho2/1000)
-        
-        # Display results
-        col1, col2, col3 = st.columns(3)
+        # Display wavelet info
+        col1, col2 = st.columns(2)
         with col1:
-            st.metric("AVO Class", avo_class)
-        with col2:
-            st.metric("Interface Depth", f"{interface_depth:.1f} m")
-        with col3:
-            st.metric("K Value", f"{K:.4f}")
+            st.subheader("Wavelet Information")
+            st.write(f"**Type:** {wavelet_type}")
+            st.write(f"**Frequency:** {wavelet_frequency} Hz")
+            st.write(f"**Length:** {len(wavelet)} samples")
+            st.write(f"**Max Amplitude:** {np.max(np.abs(wavelet)):.3f}")
         
-        # Create plots
+        with col2:
+            fig_wavelet = go.Figure()
+            fig_wavelet.add_trace(go.Scatter(
+                y=wavelet,
+                mode='lines',
+                name='Wavelet',
+                line=dict(color='blue', width=2)
+            ))
+            fig_wavelet.update_layout(
+                title="Generated Wavelet",
+                xaxis_title="Samples",
+                yaxis_title="Amplitude",
+                height=300
+            )
+            st.plotly_chart(fig_wavelet, use_container_width=True)
+        
+        # Interface selection
+        st.subheader("Interface Analysis")
+        
+        # Ensure we have valid depth data
+        if depth_col not in result_df.columns:
+            st.error(f"Depth column '{depth_col}' not found in data")
+            return
+        
+        interface_depth = st.slider(
+            "Select Interface Depth", 
+            min_value=float(result_df[depth_col].min()),
+            max_value=float(result_df[depth_col].max()),
+            value=float(result_df[depth_col].iloc[min(1000, len(result_df)-2)]),
+            step=0.5
+        )
+        
+        # Find closest depth index
+        interface_idx = (np.abs(result_df[depth_col] - interface_depth)).argmin()
+        
+        if interface_idx < len(result_df) - 1:
+            # Get properties for the interface
+            vp1 = result_df[vp_col].iloc[interface_idx]
+            vs1 = result_df[vs_col].iloc[interface_idx]
+            rho1 = result_df[rho_col].iloc[interface_idx] * 1000
+            
+            vp2 = result_df[vp_col].iloc[interface_idx + 1]
+            vs2 = result_df[vs_col].iloc[interface_idx + 1]
+            rho2 = result_df[rho_col].iloc[interface_idx + 1] * 1000
+            
+            # Calculate K value
+            vp_avg = (vp1 + vp2) / 2
+            vs_avg = (vs1 + vs2) / 2
+            K = (2 * vs_avg / vp_avg)**2
+            
+            # Get attribute ratios
+            A_ratio = result_df['A_ratio'].iloc[interface_idx]
+            B_ratio = result_df['B_ratio'].iloc[interface_idx]
+            C_ratio = result_df['C_ratio'].iloc[interface_idx]
+            
+            # Generate reflection coefficients
+            angles_deg = np.arange(angle_range_min, angle_range_max + angle_sampling, angle_sampling)
+            angles_rad = np.radians(angles_deg)
+            
+            rc_vti = vti_reflection_coefficient(angles_rad, A_ratio, B_ratio, C_ratio, K)
+            rc_iso = aki_richards_reflection_coefficient(angles_rad, vp1, vp2, vs1, vs2, rho1, rho2)
+            
+            # AVO classification
+            avo_class = avo_classification(vp1, vs1, rho1/1000, vp2, vs2, rho2/1000)
+            
+            # Display results
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("AVO Class", avo_class)
+            with col2:
+                st.metric("Interface Depth", f"{interface_depth:.1f} m")
+            with col3:
+                st.metric("K Value", f"{K:.4f}")
+            
+            # Create plots
+            st.subheader("AVO Response Comparison")
+            avo_fig = plot_avo_response(angles_deg, rc_vti, rc_iso, avo_class, interface_depth)
+            st.plotly_chart(avo_fig, use_container_width=True)
+            
+            # Create synthetic seismic gathers
+            st.subheader("Synthetic Seismic Angle Gathers")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # VTI angle gather
+                angle_axis_vti, depth_axis_vti, synthetic_gather_vti = create_angle_gather_synthetic(
+                    rc_vti, angles_deg, wavelet, interface_depth, num_traces, max_offset
+                )
+                gather_fig_vti = plot_angle_gather(
+                    angle_axis_vti, depth_axis_vti, synthetic_gather_vti,
+                    f'VTI Model ({wavelet_type} wavelet)',
+                    colormap
+                )
+                st.plotly_chart(gather_fig_vti, use_container_width=True)
+            
+            with col2:
+                # Isotropic angle gather
+                angle_axis_iso, depth_axis_iso, synthetic_gather_iso = create_angle_gather_synthetic(
+                    rc_iso, angles_deg, wavelet, interface_depth, num_traces, max_offset
+                )
+                gather_fig_iso = plot_angle_gather(
+                    angle_axis_iso, depth_axis_iso, synthetic_gather_iso,
+                    f'Isotropic Model ({wavelet_type} wavelet)',
+                    colormap
+                )
+                st.plotly_chart(gather_fig_iso, use_container_width=True)
+            
+            # Display attribute ratios
+            st.subheader("Attribute Ratios")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("A Ratio", f"{A_ratio:.4f}")
+            with col2:
+                st.metric("B Ratio", f"{B_ratio:.4f}")
+            with col3:
+                st.metric("C Ratio", f"{C_ratio:.4f}")
+        
+        # Results download section
+        st.subheader("Results Download")
+        
+        # Convert DataFrame to CSV
+        csv = result_df.to_csv(index=False)
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            avo_fig = plot_avo_response(angles_deg, rc_vti, rc_iso, avo_class, interface_depth)
-            st.plotly_chart(avo_fig, use_container_width=True)
+            st.download_button(
+                label="📥 Download Results as CSV",
+                data=csv,
+                file_name="vti_analysis_results.csv",
+                mime="text/csv",
+                help="Download the complete analysis results as a CSV file"
+            )
         
         with col2:
-            # Create angle gather synthetic seismic
-            angle_axis_vti, depth_axis_vti, synthetic_gather_vti = create_angle_gather_synthetic(
-                rc_vti, angles_deg, wavelet, interface_depth, num_traces, max_offset
+            # Create summary report
+            summary_report = f"""
+            VTI Anisotropy Analysis Report
+            ==============================
+            
+            Analysis Parameters:
+            - Wavelet Type: {wavelet_type}
+            - Wavelet Frequency: {wavelet_frequency} Hz
+            - Angle Range: {angle_range_min}-{angle_range_max} degrees
+            - Colormap: {colormap}
+            
+            Interface Analysis:
+            - Depth: {interface_depth:.1f} m
+            - AVO Class: {avo_class}
+            - K Value: {K:.4f}
+            - Attribute Ratios: A={A_ratio:.4f}, B={B_ratio:.4f}, C={C_ratio:.4f}
+            """
+            
+            st.download_button(
+                label="📄 Download Summary Report",
+                data=summary_report,
+                file_name="vti_analysis_summary.txt",
+                mime="text/plain",
+                help="Download a summary report of the analysis"
             )
-            gather_fig_vti = plot_angle_gather(
-                angle_axis_vti, depth_axis_vti, synthetic_gather_vti,
-                f'VTI Angle Gather ({wavelet_type} wavelet)',
-                colormap
-            )
-            st.plotly_chart(gather_fig_vti, use_container_width=True)
         
-        # Display attribute ratios
-        st.subheader("Attribute Ratios")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("A Ratio", f"{A_ratio:.4f}")
-        with col2:
-            st.metric("B Ratio", f"{B_ratio:.4f}")
-        with col3:
-            st.metric("C Ratio", f"{C_ratio:.4f}")
-    
-    # Results download section
-    st.subheader("Results Download")
-    
-    # Convert DataFrame to CSV
-    csv = result_df.to_csv(index=False)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.download_button(
-            label="📥 Download Results as CSV",
-            data=csv,
-            file_name="vti_analysis_results.csv",
-            mime="text/csv",
-            help="Download the complete analysis results as a CSV file"
-        )
-    
-    with col2:
-        # Create summary report
-        summary_report = f"""
-        VTI Anisotropy Analysis Report
-        ==============================
+        # Show data preview
+        st.subheader("Data Preview")
+        st.dataframe(result_df.head(), use_container_width=True)
         
-        Analysis Parameters:
-        - Wavelet Type: {wavelet_type}
-        - Wavelet Frequency: {wavelet_frequency} Hz
-        - Angle Range: {angle_range_min}-{angle_range_max} degrees
-        - Colormap: {colormap}
-        
-        Interface Analysis:
-        - Depth: {interface_depth:.1f} m
-        - AVO Class: {avo_class}
-        - K Value: {K:.4f}
-        - Attribute Ratios: A={A_ratio:.4f}, B={B_ratio:.4f}, C={C_ratio:.4f}
-        """
-        
-        st.download_button(
-            label="📄 Download Summary Report",
-            data=summary_report,
-            file_name="vti_analysis_summary.txt",
-            mime="text/plain",
-            help="Download a summary report of the analysis"
-        )
+        # Show statistics
+        st.subheader("Statistics")
+        numeric_cols = result_df.select_dtypes(include=[np.number]).columns.tolist()
+        st.dataframe(result_df[numeric_cols].describe(), use_container_width=True)
     
-    # Show data preview
-    st.subheader("Data Preview")
-    st.dataframe(result_df.head(), use_container_width=True)
-    
-    # Show statistics
-    st.subheader("Statistics")
-    numeric_cols = result_df.select_dtypes(include=[np.number]).columns.tolist()
-    st.dataframe(result_df[numeric_cols].describe(), use_container_width=True)
+    with tab2:
+        show_guide_and_theory()
 
 if __name__ == "__main__":
     main()
