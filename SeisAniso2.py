@@ -327,7 +327,7 @@ def main_processing(df, vp_col='VP', vs_col='VS', rho_col='RHOB', vclay_col='VCL
     result_df['SHEAR_MODULUS'] = shear_modulus
     
     # Calculate reflectivity series (simplified)
-    result_df['RC_ISOTROPIC'] = 0.5 * np.gradient(np.log(impedance))
+    result_df['RC_ISOTROPIC'] = 0.5 * np.gradient(np.log(impedance + 1e-10))
     
     return result_df
 
@@ -383,7 +383,8 @@ def plot_well_logs_with_highlight(result_df, depth_col, vp_col, vs_col, rho_col,
     """Plot well logs with highlighted selected depth"""
     # Create subplots
     fig = make_subplots(
-        rows=1, cols=3,
+        rows=1, 
+        cols=3,
         subplot_titles=("P-Wave Velocity (VP)", "S-Wave Velocity (VS)", "Density (RHOB)"),
         shared_y=True,
         horizontal_spacing=0.05
