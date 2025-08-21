@@ -430,6 +430,60 @@ def plot_well_logs_with_highlight(result_df, depth_col, vp_col, vs_col, rho_col,
     
     return fig_vp, fig_vs, fig_rho
 
+# ==================== CSV FORMAT HELP FUNCTION ====================
+def show_csv_format_help():
+    """Show help for CSV format requirements"""
+    with st.expander("❓ Need help with CSV format?"):
+        st.markdown("""
+        ### CSV Format Requirements:
+        
+        **Required Columns:**
+        - `DEPTH`: Depth values (meters or feet)
+        - `VP`: P-wave velocity (m/s)
+        - `VS`: S-wave velocity (m/s) 
+        - `RHOB`: Bulk density (g/cc)
+        
+        **Optional Columns:**
+        - `GR`: Gamma Ray (API units)
+        - `PHIT`: Porosity (fraction)
+        - `VCLAY`: Clay volume (fraction)
+        - `SW`: Water saturation (fraction)
+        - `RT`: Resistivity (ohm-m)
+        
+        **Example CSV format:**
+        ```
+        DEPTH,VP,VS,RHOB,GR,PHIT
+        1000,2100,1200,2.10,45,0.15
+        1000.5,2120,1210,2.11,46,0.14
+        1001,2140,1220,2.12,47,0.16
+        ```
+        
+        **Tips:**
+        - Use comma separation (not semicolon)
+        - Include header row with column names
+        - Save as UTF-8 encoding
+        - Ensure no empty rows at the beginning
+        """)
+        
+        # Provide a download link for sample CSV
+        sample_data = pd.DataFrame({
+            'DEPTH': [1000, 1000.5, 1001, 1001.5, 1002],
+            'VP': [2100, 2120, 2140, 2160, 2180],
+            'VS': [1200, 1210, 1220, 1230, 1240],
+            'RHOB': [2.10, 2.11, 2.12, 2.13, 2.14],
+            'GR': [45, 46, 47, 48, 49],
+            'PHIT': [0.15, 0.14, 0.16, 0.15, 0.17]
+        })
+        
+        csv = sample_data.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Sample CSV Template",
+            data=csv,
+            file_name="well_data_template.csv",
+            mime="text/csv",
+            help="Download a template CSV file with the correct format"
+        )
+
 # ==================== GUIDE AND THEORY CONTENT ====================
 def show_guide_and_theory():
     """Display user guide and theoretical background"""
@@ -534,6 +588,9 @@ def main():
     with tab1:
         st.title("🎯 VTI Anisotropy Analysis with Synthetic Seismic")
         
+        # Show CSV format help
+        show_csv_format_help()
+        
         # Generate or load data
         use_synthetic = True
         df = None
@@ -542,27 +599,39 @@ def main():
             try:
                 # Check if file is not empty
                 if uploaded_file.size == 0:
-                    st.error("Uploaded file is empty. Using synthetic data instead.")
+                    st.error("❌ Uploaded file is completely empty (0 bytes). Using synthetic data instead.")
                 else:
                     # Try to read the CSV file with proper error handling
                     try:
+                        # First, try to read without any assumptions
                         df = pd.read_csv(uploaded_file)
                         
                         if df.empty:
-                            st.error("CSV file contains no data. Using synthetic data instead.")
+                            st.error("📄 File was read but contains no data rows. Using synthetic data instead.")
+                        elif len(df.columns) == 0:
+                            st.error("📊 File has no columns/headers. Using synthetic data instead.")
                         else:
-                            st.success("CSV file loaded successfully!")
+                            st.success(f"✅ CSV file loaded successfully! Found {len(df)} rows and {len(df.columns)} columns.")
                             use_synthetic = False
+                            
+                            # Show a preview of the data
+                            with st.expander("📋 Data Preview"):
+                                st.dataframe(df.head())
+                                st.write(f"Columns: {list(df.columns)}")
+                                
                     except pd.errors.EmptyDataError:
-                        st.error("CSV file is empty or contains no columns. Using synthetic data instead.")
+                        st.error("📭 CSV file is empty or contains no columns. Using synthetic data instead.")
+                    except UnicodeDecodeError:
+                        st.error("🔤 File encoding issue. Try saving as UTF-8 format. Using synthetic data instead.")
                     except Exception as e:
-                        st.error(f"Error reading CSV file: {str(e)}. Using synthetic data instead.")
+                        st.error(f"❌ Error reading CSV file: {str(e)}. Using synthetic data instead.")
+                        
             except Exception as e:
-                st.error(f"Error processing file: {str(e)}. Using synthetic data instead.")
-        
+                st.error(f"⚠️ Error processing file: {str(e)}. Using synthetic data instead.")
+
         if use_synthetic or df is None:
             # Generate synthetic data
-            st.info("Using synthetic data for demonstration")
+            st.info("🧪 Using synthetic demonstration data")
             depth = np.arange(1000, 3000, 0.5)
             vp = 2000 + 1.5 * (depth - 1000) / 10 + np.random.normal(0, 50, len(depth))
             vs = vp / 1.7 + np.random.normal(0, 30, len(depth))
@@ -574,6 +643,8 @@ def main():
                 'VS': vs,
                 'RHOB': rho,
             })
+            
+            st.success("✅ Synthetic data generated successfully!")
         
         # Preprocess logs
         processed_df, vclay_col_used, phi_col_used = preprocess_logs(
