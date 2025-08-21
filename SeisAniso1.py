@@ -354,13 +354,10 @@ def plot_avo_response(angles_deg, rc_vti, rc_iso, avo_class, interface_depth):
 
 def plot_well_logs_with_highlight(result_df, depth_col, vp_col, vs_col, rho_col, selected_depth, window=50):
     """Plot well logs with highlighted selected depth"""
-    # Create subplots
-    fig = make_subplots(
-        rows=1, cols=3,
-        subplot_titles=("P-Wave Velocity (VP)", "S-Wave Velocity (VS)", "Density (RHOB)"),
-        shared_y=True,
-        horizontal_spacing=0.05
-    )
+    # Create individual figures instead of subplots to avoid the error
+    fig_vp = go.Figure()
+    fig_vs = go.Figure()
+    fig_rho = go.Figure()
     
     # Calculate window limits
     depth_min = max(result_df[depth_col].min(), selected_depth - window)
@@ -371,55 +368,65 @@ def plot_well_logs_with_highlight(result_df, depth_col, vp_col, vs_col, rho_col,
     df_window = result_df[mask]
     
     # Plot VP
-    fig.add_trace(go.Scatter(
+    fig_vp.add_trace(go.Scatter(
         x=df_window[vp_col], y=df_window[depth_col],
         mode='lines',
         name='VP',
         line=dict(color='blue', width=2),
         hovertemplate='VP: %{x:.0f} m/s<br>Depth: %{y:.1f} m<extra></extra>'
-    ), row=1, col=1)
+    ))
     
     # Plot VS
-    fig.add_trace(go.Scatter(
+    fig_vs.add_trace(go.Scatter(
         x=df_window[vs_col], y=df_window[depth_col],
         mode='lines',
         name='VS',
         line=dict(color='red', width=2),
         hovertemplate='VS: %{x:.0f} m/s<br>Depth: %{y:.1f} m<extra></extra>'
-    ), row=1, col=2)
+    ))
     
     # Plot RHOB
-    fig.add_trace(go.Scatter(
+    fig_rho.add_trace(go.Scatter(
         x=df_window[rho_col], y=df_window[depth_col],
         mode='lines',
         name='RHOB',
         line=dict(color='green', width=2),
         hovertemplate='RHOB: %{x:.2f} g/cc<br>Depth: %{y:.1f} m<extra></extra>'
-    ), row=1, col=3)
+    ))
     
-    # Add highlight line at selected depth
-    for col in range(1, 4):
+    # Add highlight line at selected depth to all figures
+    for fig in [fig_vp, fig_vs, fig_rho]:
         fig.add_hline(
             y=selected_depth, 
-            line=dict(color='orange', width=3, dash='dash'),
-            row=1, col=col
+            line=dict(color='orange', width=3, dash='dash')
         )
     
-    # Update axes
-    fig.update_xaxes(title_text="VP (m/s)", row=1, col=1)
-    fig.update_xaxes(title_text="VS (m/s)", row=1, col=2)
-    fig.update_xaxes(title_text="RHOB (g/cc)", row=1, col=3)
-    fig.update_yaxes(title_text="Depth (m)", row=1, col=1)
-    
-    # Update layout
-    fig.update_layout(
-        title=f"Well Logs - Selected Depth: {selected_depth:.1f} m ±{window} m window",
-        height=600,
-        showlegend=False,
+    # Update axes and layout for each figure
+    fig_vp.update_layout(
+        title="P-Wave Velocity (VP)",
+        xaxis_title="VP (m/s)",
+        yaxis_title="Depth (m)",
+        height=400,
         yaxis=dict(autorange="reversed")
     )
     
-    return fig
+    fig_vs.update_layout(
+        title="S-Wave Velocity (VS)",
+        xaxis_title="VS (m/s)",
+        yaxis_title="Depth (m)",
+        height=400,
+        yaxis=dict(autorange="reversed")
+    )
+    
+    fig_rho.update_layout(
+        title="Density (RHOB)",
+        xaxis_title="RHOB (g/cc)",
+        yaxis_title="Depth (m)",
+        height=400,
+        yaxis=dict(autorange="reversed")
+    )
+    
+    return fig_vp, fig_vs, fig_rho
 
 # ==================== GUIDE AND THEORY CONTENT ====================
 def show_guide_and_theory():
@@ -526,27 +533,23 @@ def main():
         st.title("🎯 VTI Anisotropy Analysis with Synthetic Seismic")
         
         # Generate or load data
+        use_synthetic = True
         if uploaded_file is not None:
             try:
                 # Check if file is not empty
                 if uploaded_file.size == 0:
                     st.error("Uploaded file is empty. Using synthetic data instead.")
-                    use_synthetic = True
                 else:
                     # Try to read the CSV file
                     df = pd.read_csv(uploaded_file)
                     
                     if df.empty:
                         st.error("CSV file contains no data. Using synthetic data instead.")
-                        use_synthetic = True
                     else:
                         st.success("CSV file loaded successfully!")
                         use_synthetic = False
             except Exception as e:
                 st.error(f"Error reading CSV file: {str(e)}. Using synthetic data instead.")
-                use_synthetic = True
-        else:
-            use_synthetic = True
         
         if use_synthetic:
             # Generate synthetic data
@@ -653,11 +656,14 @@ def main():
         
         # Display well logs with highlighted depth
         with col2:
-            well_log_fig = plot_well_logs_with_highlight(
+            st.subheader(f"Well Logs - Selected Depth: {interface_depth:.1f} m ±{window_size} m window")
+            fig_vp, fig_vs, fig_rho = plot_well_logs_with_highlight(
                 result_df, depth_col, vp_col, vs_col, rho_col, 
                 interface_depth, window_size
             )
-            st.plotly_chart(well_log_fig, use_container_width=True)
+            st.plotly_chart(fig_vp, use_container_width=True)
+            st.plotly_chart(fig_vs, use_container_width=True)
+            st.plotly_chart(fig_rho, use_container_width=True)
         
         if interface_idx < len(result_df) - 1:
             # Get properties for the interface
