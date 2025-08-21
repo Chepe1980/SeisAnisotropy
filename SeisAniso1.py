@@ -262,6 +262,48 @@ def avo_classification(vp1, vs1, rho1, vp2, vs2, rho2):
     else:
         return "Class IV" if vp_vs2 > vp_vs1 else "Class III"
 
+# ==================== MAIN PROCESSING FUNCTION ====================
+def main_processing(df, vp_col='VP', vs_col='VS', rho_col='RHOB', vclay_col='VCLAY_EST', phi_col='PHIT_EST'):
+    """Main processing function to calculate elastic properties and Thomsen parameters"""
+    result_df = df.copy()
+    
+    # Calculate Vp/Vs ratio
+    result_df['VP_VS'] = result_df[vp_col] / result_df[vs_col]
+    
+    # Calculate acoustic impedance
+    result_df['AI'] = result_df[vp_col] * result_df[rho_col]
+    
+    # Estimate Thomsen parameters
+    vp = result_df[vp_col].values
+    vs = result_df[vs_col].values
+    vclay = result_df[vclay_col].values if vclay_col in result_df.columns else np.zeros(len(result_df))
+    porosity = result_df[phi_col].values if phi_col in result_df.columns else np.zeros(len(result_df))
+    
+    epsilon, gamma, delta = estimate_thomsen_from_logs(vp, vs, vclay, porosity)
+    
+    result_df['EPSILON'] = epsilon
+    result_df['GAMMA'] = gamma
+    result_df['DELTA'] = delta
+    
+    # Calculate elastic constants
+    rho = result_df[rho_col].values * 1000  # Convert to kg/m³
+    c_dict = calculate_elastic_constants(vp, vs, rho, epsilon, gamma, delta)
+    
+    for key, value in c_dict.items():
+        result_df[key] = value
+    
+    # Calculate attribute ratios for VTI reflection coefficient
+    # These would typically be calculated at interfaces
+    # For simplicity, we'll calculate them as differences between consecutive samples
+    result_df['A_ratio'] = result_df['AI'].diff() / result_df['AI'].rolling(2).mean()
+    result_df['B_ratio'] = result_df['c44'].diff() / result_df['c44'].rolling(2).mean()
+    result_df['C_ratio'] = result_df['c33'].diff() / result_df['c33'].rolling(2).mean()
+    
+    # Fill NaN values with 0
+    result_df[['A_ratio', 'B_ratio', 'C_ratio']] = result_df[['A_ratio', 'B_ratio', 'C_ratio']].fillna(0)
+    
+    return result_df
+
 # ==================== PLOTLY VISUALIZATION FUNCTIONS ====================
 def plot_angle_gather(angle_axis, depth_axis, synthetic_gather, title, colormap='RdBu'):
     """Plot angle gather synthetic seismic section"""
