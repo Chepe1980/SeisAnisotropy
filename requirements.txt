@@ -4,4 +4,6 @@ lasio
 bokeh==2.4.3 
 pandas
 streamlit 
+scipy
 streamlit-bokeh-events
+plotly
