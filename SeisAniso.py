@@ -61,30 +61,39 @@ colormap = st.sidebar.selectbox("Colormap",
 if uploaded_file is not None:
     st.sidebar.header("Column Mapping")
     try:
-        df_preview = pd.read_csv(uploaded_file)
-        available_columns = df_preview.columns.tolist()
-        
-        depth_col = st.sidebar.selectbox("Depth Column", available_columns, 
-                                       index=available_columns.index('DEPTH') if 'DEPTH' in available_columns else 0)
-        vp_col = st.sidebar.selectbox("VP Column", available_columns, 
-                                    index=available_columns.index('VP') if 'VP' in available_columns else 0)
-        vs_col = st.sidebar.selectbox("VS Column", available_columns, 
-                                    index=available_columns.index('VS') if 'VS' in available_columns else 1)
-        rho_col = st.sidebar.selectbox("Density Column", available_columns, 
-                                     index=available_columns.index('RHOB') if 'RHOB' in available_columns else 2)
-        
-        # Optional columns
-        gr_col = st.sidebar.selectbox("GR Column (optional)", [None] + available_columns, 
-                                    index=0)
-        phi_col = st.sidebar.selectbox("Porosity Column (optional)", [None] + available_columns, 
-                                     index=0)
-        sw_col = st.sidebar.selectbox("SW Column (optional)", [None] + available_columns, 
-                                    index=0)
-        rt_col = st.sidebar.selectbox("RT Column (optional)", [None] + available_columns, 
-                                    index=0)
-        
+        # Check if file is not empty
+        if uploaded_file.size == 0:
+            st.sidebar.error("Uploaded file is empty")
+        else:
+            # Try to read the CSV file
+            df_preview = pd.read_csv(uploaded_file)
+            
+            if df_preview.empty:
+                st.sidebar.error("CSV file contains no data")
+            else:
+                available_columns = df_preview.columns.tolist()
+                
+                depth_col = st.sidebar.selectbox("Depth Column", available_columns, 
+                                               index=available_columns.index('DEPTH') if 'DEPTH' in available_columns else 0)
+                vp_col = st.sidebar.selectbox("VP Column", available_columns, 
+                                            index=available_columns.index('VP') if 'VP' in available_columns else 0)
+                vs_col = st.sidebar.selectbox("VS Column", available_columns, 
+                                            index=available_columns.index('VS') if 'VS' in available_columns else 1)
+                rho_col = st.sidebar.selectbox("Density Column", available_columns, 
+                                             index=available_columns.index('RHOB') if 'RHOB' in available_columns else 2)
+                
+                # Optional columns
+                gr_col = st.sidebar.selectbox("GR Column (optional)", [None] + available_columns, 
+                                            index=0)
+                phi_col = st.sidebar.selectbox("Porosity Column (optional)", [None] + available_columns, 
+                                             index=0)
+                sw_col = st.sidebar.selectbox("SW Column (optional)", [None] + available_columns, 
+                                            index=0)
+                rt_col = st.sidebar.selectbox("RT Column (optional)", [None] + available_columns, 
+                                            index=0)
+                
     except Exception as e:
-        st.sidebar.error(f"Error reading file: {e}")
+        st.sidebar.error(f"Error reading file: {str(e)}")
 
 # ==================== WAVELET GENERATION ====================
 def generate_ricker_wavelet(frequency, length, dt):
@@ -359,12 +368,27 @@ def main():
     # Generate or load data
     if uploaded_file is not None:
         try:
-            df = pd.read_csv(uploaded_file)
-            st.success("CSV file loaded successfully!")
+            # Check if file is not empty
+            if uploaded_file.size == 0:
+                st.error("Uploaded file is empty. Using synthetic data instead.")
+                use_synthetic = True
+            else:
+                # Try to read the CSV file
+                df = pd.read_csv(uploaded_file)
+                
+                if df.empty:
+                    st.error("CSV file contains no data. Using synthetic data instead.")
+                    use_synthetic = True
+                else:
+                    st.success("CSV file loaded successfully!")
+                    use_synthetic = False
         except Exception as e:
-            st.error(f"Error reading CSV file: {e}")
-            return
+            st.error(f"Error reading CSV file: {str(e)}. Using synthetic data instead.")
+            use_synthetic = True
     else:
+        use_synthetic = True
+    
+    if use_synthetic:
         # Generate synthetic data
         st.info("Using synthetic data for demonstration")
         depth = np.arange(1000, 3000, 0.5)
@@ -436,11 +460,17 @@ def main():
     
     # Interface selection
     st.subheader("Interface Analysis")
+    
+    # Ensure we have valid depth data
+    if depth_col not in result_df.columns:
+        st.error(f"Depth column '{depth_col}' not found in data")
+        return
+    
     interface_depth = st.slider(
         "Select Interface Depth", 
         min_value=float(result_df[depth_col].min()),
         max_value=float(result_df[depth_col].max()),
-        value=float(result_df[depth_col].iloc[1000]),
+        value=float(result_df[depth_col].iloc[min(1000, len(result_df)-2)]),
         step=0.5
     )
     
