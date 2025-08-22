@@ -9,6 +9,8 @@ from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 import io
+import warnings
+warnings.filterwarnings('ignore')
 
 # Set page configuration
 st.set_page_config(
@@ -22,7 +24,8 @@ st.set_page_config(
 st.sidebar.title("Configuration Parameters")
 
 # File upload
-uploaded_file = st.sidebar.file_uploader("Upload CSV file", type=["csv"])
+uploaded_file = st.sidebar.file_uploader("Upload CSV file", type=["csv"], 
+                                        help="Upload well log data with columns for VP, VS, RHOB, and DEPTH")
 
 # Initialize default column names
 vp_col = 'VP'
@@ -33,29 +36,56 @@ gr_col = None
 phi_col = None
 sw_col = None
 rt_col = None
+vclay_col = None
 
 # Wavelet parameters
 st.sidebar.header("Wavelet Settings")
-wavelet_type = st.sidebar.selectbox("Wavelet Type", ["ricker", "bandpass"], index=0)
-wavelet_frequency = st.sidebar.slider("Wavelet Frequency (Hz)", 10, 100, 30)
-freq_low = st.sidebar.slider("Low Frequency (Hz)", 5, 50, 10)
-freq_high = st.sidebar.slider("High Frequency (Hz)", 20, 100, 50)
-wavelet_length = st.sidebar.slider("Wavelet Length", 50, 200, 100)
-dt = st.sidebar.slider("Time Sampling (s)", 0.001, 0.005, 0.002, 0.001)
+wavelet_type = st.sidebar.selectbox("Wavelet Type", ["ricker", "bandpass"], index=0,
+                                   help="Ricker: zero-phase wavelet with specified frequency. Bandpass: filtered impulse with frequency range.")
+wavelet_frequency = st.sidebar.slider("Wavelet Frequency (Hz)", 10, 100, 30,
+                                     help="Central frequency for Ricker wavelet")
+freq_low = st.sidebar.slider("Low Frequency (Hz)", 5, 50, 10,
+                            help="Lower cutoff frequency for bandpass wavelet")
+freq_high = st.sidebar.slider("High Frequency (Hz)", 20, 100, 50,
+                             help="Upper cutoff frequency for bandpass wavelet")
+wavelet_length = st.sidebar.slider("Wavelet Length", 50, 200, 100,
+                                  help="Number of samples in the wavelet")
+dt = st.sidebar.slider("Time Sampling (s)", 0.001, 0.005, 0.002, 0.001,
+                      help="Time sampling interval for synthetic seismic")
 
 # Angle parameters
 st.sidebar.header("Angle Settings")
-angle_range_min = st.sidebar.slider("Minimum Angle (degrees)", 0, 30, 0)
-angle_range_max = st.sidebar.slider("Maximum Angle (degrees)", 30, 60, 50)
-angle_sampling = st.sidebar.slider("Angle Sampling (degrees)", 0.1, 2.0, 0.5, 0.1)
-num_traces = st.sidebar.slider("Number of Traces", 20, 100, 50)
-max_offset = st.sidebar.slider("Depth Offset (m)", 10, 50, 30)
+angle_range_min = st.sidebar.slider("Minimum Angle (degrees)", 0, 30, 0,
+                                   help="Minimum incidence angle for analysis")
+angle_range_max = st.sidebar.slider("Maximum Angle (degrees)", 30, 60, 50,
+                                   help="Maximum incidence angle for analysis")
+angle_sampling = st.sidebar.slider("Angle Sampling (degrees)", 0.1, 2.0, 0.5, 0.1,
+                                  help="Angle increment for calculation")
+num_traces = st.sidebar.slider("Number of Traces", 20, 100, 50,
+                              help="Number of traces in synthetic gather")
+max_offset = st.sidebar.slider("Depth Offset (m)", 10, 50, 30,
+                              help="Vertical extent around interface for display")
 
 # Display parameters
 st.sidebar.header("Display Settings")
 colormap = st.sidebar.selectbox("Colormap", 
-                               ["RdBu", "Viridis", "Plasma", "Inferno", "Magma", "Coolwarm", "Spectral"],
+                               ["RdBu", "Viridis", "Plasma", "Inferno", "Magma", "Coolwarm", "Spectral", "Seismic"],
                                index=0)
+show_confidence_intervals = st.sidebar.checkbox("Show Confidence Intervals", value=True,
+                                               help="Display uncertainty ranges in AVO plots")
+
+# Advanced parameters
+with st.sidebar.expander("Advanced Parameters"):
+    st.markdown("**Anisotropy Estimation Method**")
+    anisotropy_method = st.selectbox("Method", ["default", "complex"], index=0,
+                                   help="Method for estimating Thomsen parameters from logs")
+    
+    st.markdown("**Synthetic Data Generation**")
+    synth_vp_min = st.slider("Synthetic VP Min (m/s)", 2000, 3000, 2200)
+    synth_vp_max = st.slider("Synthetic VP Max (m/s)", 3000, 5000, 3800)
+    synth_vp_vs_ratio = st.slider("VP/VS Ratio", 1.5, 2.2, 1.7, 0.1)
+    synth_rho_min = st.slider("Density Min (g/cc)", 2.0, 2.4, 2.1, 0.1)
+    synth_rho_max = st.slider("Density Max (g/cc)", 2.4, 3.0, 2.6, 0.1)
 
 # Manual column selection (only show if file is uploaded)
 if uploaded_file is not None:
@@ -65,8 +95,12 @@ if uploaded_file is not None:
         if uploaded_file.size == 0:
             st.sidebar.error("Uploaded file is empty")
         else:
-            # Try to read the CSV file
-            df_preview = pd.read_csv(uploaded_file)
+            # Try to read the CSV file with different encodings if needed
+            try:
+                df_preview = pd.read_csv(uploaded_file)
+            except UnicodeDecodeError:
+                # Try with different encoding if UTF-8 fails
+                df_preview = pd.read_csv(uploaded_file, encoding='latin-1')
             
             if df_preview.empty:
                 st.sidebar.error("CSV file contains no data")
@@ -91,6 +125,8 @@ if uploaded_file is not None:
                                             index=0)
                 rt_col = st.sidebar.selectbox("RT Column (optional)", [None] + available_columns, 
                                             index=0)
+                vclay_col = st.sidebar.selectbox("VCLAY Column (optional)", [None] + available_columns,
+                                               index=0)
                 
     except Exception as e:
         st.sidebar.error(f"Error reading file: {str(e)}")
@@ -211,6 +247,15 @@ def estimate_thomsen_from_logs(vp, vs, vclay, porosity, method='default'):
         epsilon = np.clip(epsilon, 0.0, 0.3)
         gamma = np.clip(gamma, 0.0, 0.25)
         delta = np.clip(delta, -0.1, 0.2)
+    elif method == 'complex':
+        # More complex estimation based on empirical relationships
+        epsilon = 0.12 * vclay + 0.06 * porosity + 0.002 * (vp - 2500)
+        gamma = 0.18 * vclay + 0.04 * porosity + 0.001 * (vp - 2500)
+        delta = 0.09 * vclay + 0.025 * porosity + 0.0015 * (vp - 2500)
+        
+        epsilon = np.clip(epsilon, 0.0, 0.35)
+        gamma = np.clip(gamma, 0.0, 0.3)
+        delta = np.clip(delta, -0.15, 0.25)
     
     return epsilon, gamma, delta
 
@@ -221,7 +266,12 @@ def calculate_elastic_constants(vp, vs, rho, epsilon, gamma, delta):
     
     c11 = c33 * (1 + 2 * epsilon)
     c66 = c44 * (1 + 2 * gamma)
-    c13 = np.sqrt(2 * delta * c33 * (c33 - c44)) + (c33 - 2 * c44)
+    
+    # More stable calculation of c13
+    delta_term = 2 * delta * c33 * (c33 - c44)
+    # Ensure we don't take square root of negative values
+    delta_term = np.maximum(delta_term, 0)
+    c13 = np.sqrt(delta_term) + (c33 - 2 * c44)
     
     return {'c11': c11, 'c13': c13, 'c33': c33, 'c44': c44, 'c66': c66}
 
@@ -263,21 +313,21 @@ def avo_classification(vp1, vs1, rho1, vp2, vs2, rho2):
         return "Class IV" if vp_vs2 > vp_vs1 else "Class III"
 
 # ==================== MAIN PROCESSING FUNCTION ====================
-def main_processing(df, vp_col='VP', vs_col='VS', rho_col='RHOB', vclay_col='VCLAY', phi_col='PHIT'):
+def main_processing(df, vp_col='VP', vs_col='VS', rho_col='RHOB', vclay_col='VCLAY', phi_col='PHIT', method='default'):
     """Main function to process well logs"""
     result_df = df.copy()
     
     # Extract data
     vp = df[vp_col].values
     vs = df[vs_col].values
-    rho = df[rho_col].values * 1000
+    rho = df[rho_col].values * 1000  # Convert to kg/m³
     
     # Get clay volume and porosity
     vclay = df[vclay_col].values if vclay_col in df.columns else np.zeros_like(vp)
     porosity = df[phi_col].values if phi_col in df.columns else np.zeros_like(vp)
     
     # Estimate Thomsen parameters
-    epsilon, gamma, delta = estimate_thomsen_from_logs(vp, vs, vclay, porosity)
+    epsilon, gamma, delta = estimate_thomsen_from_logs(vp, vs, vclay, porosity, method=method)
     
     result_df['EPSILON'] = epsilon
     result_df['GAMMA'] = gamma
@@ -322,6 +372,7 @@ def plot_angle_gather(angle_axis, depth_axis, synthetic_gather, title, colormap=
         y=depth_axis,
         colorscale=colormap,
         hoverongaps=False,
+        colorbar=dict(title="Amplitude"),
     ))
     
     fig.update_layout(
@@ -334,9 +385,26 @@ def plot_angle_gather(angle_axis, depth_axis, synthetic_gather, title, colormap=
     )
     return fig
 
-def plot_avo_response(angles_deg, rc_vti, rc_iso, avo_class, interface_depth):
+def plot_avo_response(angles_deg, rc_vti, rc_iso, avo_class, interface_depth, show_confidence=True):
     """Create interactive AVO response plot"""
     fig = go.Figure()
+    
+    # Calculate confidence intervals if requested
+    if show_confidence:
+        # Simple uncertainty estimation based on angle
+        uncertainty = 0.05 + 0.001 * angles_deg**2
+        upper_vti = rc_vti + uncertainty
+        lower_vti = rc_vti - uncertainty
+        
+        fig.add_trace(go.Scatter(
+            x=np.concatenate([angles_deg, angles_deg[::-1]]),
+            y=np.concatenate([upper_vti, lower_vti[::-1]]),
+            fill='toself',
+            fillcolor='rgba(0, 100, 255, 0.2)',
+            line=dict(color='rgba(255, 255, 255, 0)'),
+            name='VTI Uncertainty',
+            showlegend=True
+        ))
     
     fig.add_trace(go.Scatter(
         x=angles_deg, y=rc_vti,
@@ -352,23 +420,43 @@ def plot_avo_response(angles_deg, rc_vti, rc_iso, avo_class, interface_depth):
         line=dict(color='red', width=2, dash='dash')
     ))
     
+    # Add annotations for AVO class
+    fig.add_annotation(
+        x=0.05, y=0.95,
+        xref="paper", yref="paper",
+        text=f"AVO Class: {avo_class}",
+        showarrow=False,
+        font=dict(size=14, color="black"),
+        bgcolor="white",
+        bordercolor="black",
+        borderwidth=1,
+        borderpad=4
+    )
+    
     fig.update_layout(
-        title=f'AVO Response: {avo_class} at Depth: {interface_depth:.1f} m',
+        title=f'AVO Response at Depth: {interface_depth:.1f} m',
         xaxis_title='Incidence Angle (degrees)',
         yaxis_title='Reflection Coefficient',
         width=800,
         height=500,
+        hovermode='x unified'
     )
     return fig
 
-def plot_well_logs(df, depth_col, vp_col, vs_col, rho_col, selected_depth=None):
+def plot_well_logs(df, depth_col, vp_col, vs_col, rho_col, gr_col=None, selected_depth=None):
     """Create interactive well log visualization with highlighted depth"""
+    # Determine number of tracks based on available data
+    tracks = 3
+    if gr_col and gr_col in df.columns:
+        tracks = 4
+    
     # Create subplots
     fig = make_subplots(
         rows=1, 
-        cols=3, 
-        subplot_titles=("VP (m/s)", "VS (m/s)", "Density (g/cc)"),
-        shared_yaxes=True
+        cols=tracks, 
+        subplot_titles=("VP (m/s)", "VS (m/s)", "Density (g/cc)", "Gamma Ray") if tracks == 4 else ("VP (m/s)", "VS (m/s)", "Density (g/cc)"),
+        shared_yaxes=True,
+        horizontal_spacing=0.05
     )
     
     # Add VP log
@@ -407,6 +495,19 @@ def plot_well_logs(df, depth_col, vp_col, vs_col, rho_col, selected_depth=None):
         row=1, col=3
     )
     
+    # Add Gamma Ray log if available
+    if tracks == 4:
+        fig.add_trace(
+            go.Scatter(
+                x=df[gr_col], 
+                y=df[depth_col], 
+                mode='lines',
+                name='GR',
+                line=dict(color='purple', width=1)
+            ),
+            row=1, col=4
+        )
+    
     # Add highlighted depth line if selected
     if selected_depth is not None:
         # Find the closest depth in the data
@@ -414,10 +515,10 @@ def plot_well_logs(df, depth_col, vp_col, vs_col, rho_col, selected_depth=None):
         actual_depth = df[depth_col].iloc[depth_idx]
         
         # Add horizontal line across all subplots
-        for col in range(1, 4):
+        for col in range(1, tracks+1):
             fig.add_hline(
                 y=actual_depth, 
-                line=dict(color="orange", width=2, dash="dash"),
+                line=dict(color="orange", width=3, dash="dash"),
                 row=1, 
                 col=col
             )
@@ -428,14 +529,39 @@ def plot_well_logs(df, depth_col, vp_col, vs_col, rho_col, selected_depth=None):
         height=600,
         showlegend=False,
         yaxis=dict(autorange="reversed", title="Depth (m)"),
-        yaxis2=dict(autorange="reversed"),
-        yaxis3=dict(autorange="reversed")
     )
     
     # Update x-axis titles
     fig.update_xaxes(title_text="VP (m/s)", row=1, col=1)
     fig.update_xaxes(title_text="VS (m/s)", row=1, col=2)
     fig.update_xaxes(title_text="Density (g/cc)", row=1, col=3)
+    if tracks == 4:
+        fig.update_xaxes(title_text="Gamma Ray (API)", row=1, col=4)
+    
+    return fig
+
+def plot_thomsen_parameters(depth, epsilon, gamma, delta):
+    """Plot Thomsen parameters with depth"""
+    fig = make_subplots(rows=1, cols=3, 
+                       subplot_titles=('Epsilon (ε)', 'Gamma (γ)', 'Delta (δ)'))
+    
+    fig.add_trace(go.Scatter(x=epsilon, y=depth, mode='lines', name='ε', 
+                            line=dict(color='blue')), row=1, col=1)
+    fig.add_trace(go.Scatter(x=gamma, y=depth, mode='lines', name='γ', 
+                            line=dict(color='green')), row=1, col=2)
+    fig.add_trace(go.Scatter(x=delta, y=depth, mode='lines', name='δ', 
+                            line=dict(color='red')), row=1, col=3)
+    
+    fig.update_yaxes(title_text="Depth (m)", autorange="reversed", row=1, col=1)
+    fig.update_xaxes(title_text="ε", row=1, col=1)
+    fig.update_xaxes(title_text="γ", row=1, col=2)
+    fig.update_xaxes(title_text="δ", row=1, col=3)
+    
+    fig.update_layout(
+        title="Thomsen Anisotropy Parameters",
+        height=500,
+        showlegend=False
+    )
     
     return fig
 
@@ -444,7 +570,7 @@ def show_guide_and_theory():
     """Display user guide and theoretical background"""
     st.header("📖 User Guide & Theoretical Background")
     
-    tab1, tab2, tab3 = st.tabs(["User Guide", "Theory", "References"])
+    tab1, tab2, tab3, tab4 = st.tabs(["User Guide", "Theory", "References", "FAQ & Troubleshooting"])
     
     with tab1:
         st.subheader("User Guide")
@@ -534,11 +660,40 @@ def show_guide_and_theory():
         - Visualization with Plotly for interactive graphs
         - Wavelet generation using Ricker and bandpass filters
         """)
+        
+    with tab4:
+        st.subheader("FAQ & Troubleshooting")
+        st.markdown("""
+        ### Frequently Asked Questions
+        
+        **Q: What file format should I use for my data?**
+        A: The app accepts CSV files with headers. Make sure your data has columns for DEPTH, VP, VS, and RHOB.
+        
+        **Q: Why are my Thomsen parameters showing unexpected values?**
+        A: Thomsen parameters are estimated from available logs. If you have VCLAY or GR data, the estimation will be more accurate.
+        
+        **Q: How do I interpret the AVO classification?**
+        A: The AVO class provides information about the impedance contrast and fluid content at the interface.
+        
+        **Q: What's the difference between the isotropic and VTI reflection coefficients?**
+        A: The isotropic model assumes no anisotropy, while the VTI model accounts for directional velocity variations.
+        
+        ### Troubleshooting
+        
+        **Problem: File upload fails**
+        - Solution: Check that your file is a valid CSV with proper headers
+        
+        **Problem: No data displayed after upload**
+        - Solution: Verify that you've correctly mapped the column names in the sidebar
+        
+        **Problem: Synthetic seismic looks noisy or unrealistic**
+        - Solution: Adjust the wavelet parameters (frequency, length) and check your input data quality
+        """)
 
 # ==================== STREAMLIT APP MAIN ====================
 def main():
     # Create tabs for different sections
-    tab1, tab2 = st.tabs(["Analysis", "Guide & Theory"])
+    tab1, tab2, tab3 = st.tabs(["Analysis", "Data Visualization", "Guide & Theory"])
     
     with tab1:
         st.title("🎯 VTI Anisotropy Analysis with Synthetic Seismic")
@@ -551,7 +706,12 @@ def main():
             
         # Load data from uploaded file
         try:
-            df = pd.read_csv(uploaded_file)
+            # Try different encodings if UTF-8 fails
+            try:
+                df = pd.read_csv(uploaded_file)
+            except UnicodeDecodeError:
+                df = pd.read_csv(uploaded_file, encoding='latin-1')
+                
             if df.empty:
                 st.error("Uploaded CSV file is empty. Please upload a valid file.")
                 return
@@ -560,6 +720,7 @@ def main():
             
         except Exception as e:
             st.error(f"Error reading CSV file: {str(e)}")
+            st.info("Please check that your file is a valid CSV with proper column headers.")
             return
         
         # Preprocess logs
@@ -569,6 +730,7 @@ def main():
             vs_col=vs_col, 
             rho_col=rho_col,
             gr_col=gr_col,
+            vclay_col=vclay_col,
             phi_col=phi_col
         )
         
@@ -579,7 +741,8 @@ def main():
             vs_col=vs_col, 
             rho_col=rho_col, 
             vclay_col=vclay_col_used, 
-            phi_col=phi_col_used
+            phi_col=phi_col_used,
+            method=anisotropy_method
         )
         
         # Generate wavelet
@@ -600,6 +763,7 @@ def main():
             st.write(f"**Frequency:** {wavelet_frequency} Hz")
             st.write(f"**Length:** {len(wavelet)} samples")
             st.write(f"**Max Amplitude:** {np.max(np.abs(wavelet)):.3f}")
+            st.write(f"**Sample Rate:** {dt*1000:.1f} ms")
         
         with col2:
             fig_wavelet = go.Figure()
@@ -624,7 +788,8 @@ def main():
             depth_col, 
             vp_col, 
             vs_col, 
-            rho_col
+            rho_col,
+            gr_col=gr_col
         )
         st.plotly_chart(well_log_fig, use_container_width=True)
         
@@ -641,7 +806,8 @@ def main():
             min_value=float(result_df[depth_col].min()),
             max_value=float(result_df[depth_col].max()),
             value=float(result_df[depth_col].iloc[min(100, len(result_df)-2)]),
-            step=0.5
+            step=0.5,
+            help="Select the depth where you want to analyze the interface between two layers"
         )
         
         # Update well log visualization with selected depth
@@ -651,6 +817,7 @@ def main():
             vp_col, 
             vs_col, 
             rho_col,
+            gr_col=gr_col,
             selected_depth=interface_depth
         )
         st.plotly_chart(well_log_fig_selected, use_container_width=True)
@@ -689,17 +856,19 @@ def main():
             avo_class = avo_classification(vp1, vs1, rho1/1000, vp2, vs2, rho2/1000)
             
             # Display results
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("AVO Class", avo_class)
             with col2:
                 st.metric("Interface Depth", f"{interface_depth:.1f} m")
             with col3:
                 st.metric("K Value", f"{K:.4f}")
+            with col4:
+                st.metric("Impedance Contrast", f"{(vp2*rho2/1000)/(vp1*rho1/1000):.3f}")
             
             # Create plots
             st.subheader("AVO Response Comparison")
-            avo_fig = plot_avo_response(angles_deg, rc_vti, rc_iso, avo_class, interface_depth)
+            avo_fig = plot_avo_response(angles_deg, rc_vti, rc_iso, avo_class, interface_depth, show_confidence_intervals)
             st.plotly_chart(avo_fig, use_container_width=True)
             
             # Create synthetic seismic gathers
@@ -735,11 +904,14 @@ def main():
             st.subheader("Attribute Ratios")
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("A Ratio", f"{A_ratio:.4f}")
+                st.metric("A Ratio", f"{A_ratio:.4f}", 
+                         help="Relative change in acoustic impedance (ρVp)")
             with col2:
-                st.metric("B Ratio", f"{B_ratio:.4f}")
+                st.metric("B Ratio", f"{B_ratio:.4f}", 
+                         help="Relative change in shear modulus term (ρVs²exp(σ/4))")
             with col3:
-                st.metric("C Ratio", f"{C_ratio:.4f}")
+                st.metric("C Ratio", f"{C_ratio:.4f}", 
+                         help="Relative change in anisotropic P-wave term (Vpe^ε)")
         
         # Results download section
         st.subheader("Results Download")
@@ -769,12 +941,16 @@ def main():
             - Wavelet Frequency: {wavelet_frequency} Hz
             - Angle Range: {angle_range_min}-{angle_range_max} degrees
             - Colormap: {colormap}
+            - Anisotropy Estimation Method: {anisotropy_method}
             
             Interface Analysis:
             - Depth: {interface_depth:.1f} m
             - AVO Class: {avo_class}
             - K Value: {K:.4f}
             - Attribute Ratios: A={A_ratio:.4f}, B={B_ratio:.4f}, C={C_ratio:.4f}
+            - Impedance Contrast: {(vp2*rho2/1000)/(vp1*rho1/1000):.3f}
+            
+            Data Source: Uploaded CSV
             """
             
             st.download_button(
@@ -784,17 +960,77 @@ def main():
                 mime="text/plain",
                 help="Download a summary report of the analysis"
             )
-        
-        # Show data preview
-        st.subheader("Data Preview")
-        st.dataframe(result_df.head(), use_container_width=True)
-        
-        # Show statistics
-        st.subheader("Statistics")
-        numeric_cols = result_df.select_dtypes(include=[np.number]).columns.tolist()
-        st.dataframe(result_df[numeric_cols].describe(), use_container_width=True)
     
     with tab2:
+        st.header("Data Visualization")
+        
+        if 'result_df' in locals():
+            # Display Thomsen parameters
+            st.subheader("Thomsen Anisotropy Parameters")
+            thomsen_fig = plot_thomsen_parameters(
+                result_df[depth_col].values,
+                result_df['EPSILON'].values,
+                result_df['GAMMA'].values,
+                result_df['DELTA'].values
+            )
+            st.plotly_chart(thomsen_fig, use_container_width=True)
+            
+            # Display log curves
+            st.subheader("Well Log Curves")
+            
+            log_fig = make_subplots(rows=1, cols=4, 
+                                   subplot_titles=('VP and VS', 'Density', 'Anisotropy Parameters', 'Other Logs'),
+                                   shared_yaxes=True)
+            
+            # VP and VS
+            log_fig.add_trace(go.Scatter(x=result_df[vp_col], y=result_df[depth_col], 
+                                        name='VP', line=dict(color='red')), row=1, col=1)
+            log_fig.add_trace(go.Scatter(x=result_df[vs_col], y=result_df[depth_col], 
+                                        name='VS', line=dict(color='blue')), row=1, col=1)
+            
+            # Density
+            log_fig.add_trace(go.Scatter(x=result_df[rho_col], y=result_df[depth_col], 
+                                        name='Density', line=dict(color='green')), row=1, col=2)
+            
+            # Anisotropy parameters
+            log_fig.add_trace(go.Scatter(x=result_df['EPSILON'], y=result_df[depth_col], 
+                                        name='Epsilon', line=dict(color='orange')), row=1, col=3)
+            log_fig.add_trace(go.Scatter(x=result_df['GAMMA'], y=result_df[depth_col], 
+                                        name='Gamma', line=dict(color='purple')), row=1, col=3)
+            log_fig.add_trace(go.Scatter(x=result_df['DELTA'], y=result_df[depth_col], 
+                                        name='Delta', line=dict(color='brown')), row=1, col=3)
+            
+            # Other logs if available
+            if gr_col and gr_col in result_df.columns:
+                log_fig.add_trace(go.Scatter(x=result_df[gr_col], y=result_df[depth_col], 
+                                            name='GR', line=dict(color='black')), row=1, col=4)
+            
+            # Update axes
+            log_fig.update_yaxes(title_text="Depth (m)", autorange="reversed", row=1, col=1)
+            log_fig.update_xaxes(title_text="Velocity (m/s)", row=1, col=1)
+            log_fig.update_xaxes(title_text="Density (g/cc)", row=1, col=2)
+            log_fig.update_xaxes(title_text="Anisotropy Parameters", row=1, col=3)
+            log_fig.update_xaxes(title_text="Other Logs", row=1, col=4)
+            
+            log_fig.update_layout(
+                height=600,
+                showlegend=True
+            )
+            
+            st.plotly_chart(log_fig, use_container_width=True)
+            
+            # Show data preview
+            st.subheader("Data Preview")
+            st.dataframe(result_df.head(), use_container_width=True)
+            
+            # Show statistics
+            st.subheader("Statistics")
+            numeric_cols = result_df.select_dtypes(include=[np.number]).columns.tolist()
+            st.dataframe(result_df[numeric_cols].describe(), use_container_width=True)
+        else:
+            st.info("Process data in the Analysis tab to visualize results here.")
+    
+    with tab3:
         show_guide_and_theory()
 
 if __name__ == "__main__":
