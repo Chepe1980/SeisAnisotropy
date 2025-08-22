@@ -264,70 +264,52 @@ def avo_classification(vp1, vs1, rho1, vp2, vs2, rho2):
 
 # ==================== MAIN PROCESSING FUNCTION ====================
 def main_processing(df, vp_col='VP', vs_col='VS', rho_col='RHOB', vclay_col='VCLAY', phi_col='PHIT'):
-    """
-    Main processing function to calculate VTI parameters and attribute ratios
-    """
+    """Main function to process well logs"""
     result_df = df.copy()
     
-    # Extract arrays for processing
-    vp = result_df[vp_col].values
-    vs = result_df[vs_col].values
-    rho = result_df[rho_col].values
+    # Extract data
+    vp = df[vp_col].values
+    vs = df[vs_col].values
+    rho = df[rho_col].values * 1000
     
-    # Handle optional parameters with default values
-    if vclay_col in result_df.columns:
-        vclay = result_df[vclay_col].values
-    else:
-        vclay = np.zeros(len(result_df))
-        
-    if phi_col in result_df.columns:
-        phi = result_df[phi_col].values
-    else:
-        phi = np.zeros(len(result_df))
+    # Get clay volume and porosity
+    vclay = df[vclay_col].values if vclay_col in df.columns else np.zeros_like(vp)
+    porosity = df[phi_col].values if phi_col in df.columns else np.zeros_like(vp)
     
     # Estimate Thomsen parameters
-    epsilon, gamma, delta = estimate_thomsen_from_logs(vp, vs, vclay, phi)
+    epsilon, gamma, delta = estimate_thomsen_from_logs(vp, vs, vclay, porosity)
     
-    # Calculate elastic constants
-    elastic_constants = calculate_elastic_constants(vp, vs, rho, epsilon, gamma, delta)
-    
-    # Add Thomsen parameters to result dataframe
     result_df['EPSILON'] = epsilon
     result_df['GAMMA'] = gamma
     result_df['DELTA'] = delta
     
-    # Add elastic constants to result dataframe
-    for key, value in elastic_constants.items():
+    # Calculate elastic constants
+    constants = calculate_elastic_constants(vp, vs, rho, epsilon, gamma, delta)
+    
+    for key, value in constants.items():
         result_df[key] = value
     
-    # Calculate attribute ratios (A, B, C ratios)
-    # These are simplified approximations for the VTI reflection coefficient
+    # Calculate A, B, C attributes
+    A = rho * vp
+    B = rho * vs**2 * np.exp(((vp/vs)**2 * (epsilon - delta))/4)
+    C = vp * np.exp(epsilon)
     
-    # A ratio: related to impedance contrast (ΔZ/Z)
-    # Using finite difference to approximate the derivative
-    impedance = vp * rho
-    d_impedance = np.gradient(impedance)
-    result_df['A_ratio'] = d_impedance / (impedance + 1e-10)  # Avoid division by zero
+    result_df['A'] = A
+    result_df['B'] = B
+    result_df['C'] = C
     
-    # B ratio: related to shear modulus contrast (Δμ/μ)
-    shear_modulus = rho * vs**2
-    d_shear_modulus = np.gradient(shear_modulus)
-    result_df['B_ratio'] = d_shear_modulus / (shear_modulus + 1e-10)
+    # Calculate attribute ratios
+    A_ratio = np.log(A[1:] / A[:-1])
+    B_ratio = np.log(B[1:] / B[:-1])
+    C_ratio = np.log(C[1:] / C[:-1])
     
-    # C ratio: related to anisotropy contrast (Δε/ε)
-    # Using epsilon as a proxy for anisotropy contrast
-    d_epsilon = np.gradient(epsilon)
-    result_df['C_ratio'] = d_epsilon / (epsilon + 1e-10)
-    
-    # Calculate additional useful parameters
-    result_df['VP_VS_RATIO'] = vp / vs
-    result_df['ACOUSTIC_IMPEDANCE'] = impedance
-    result_df['SHEAR_IMPEDANCE'] = vs * rho
-    result_df['LAME_PARAMETER'] = rho * (vp**2 - 2 * vs**2)
-    result_df['SHEAR_MODULUS'] = shear_modulus
-    
-    # Calculate reflectivity series (simplified)
-    result_df['RC_ISOTROPIC'] = 0.5 * np.gradient(np.log(impedance + 1e-10))
+    # Add ratios to result dataframe
+    result_df['A_ratio'] = np.nan
+    result_df['B_ratio'] = np.nan
+    result_df['C_ratio'] = np.nan
+    result_df.loc[result_df.index[:-1], 'A_ratio'] = A_ratio
+    result_df.loc[result_df.index[:-1], 'B_ratio'] = B_ratio
+    result_df.loc[result_df.index[:-1], 'C_ratio'] = C_ratio
     
     return result_df
 
@@ -379,73 +361,81 @@ def plot_avo_response(angles_deg, rc_vti, rc_iso, avo_class, interface_depth):
     )
     return fig
 
-def plot_well_logs_with_highlight(result_df, depth_col, vp_col, vs_col, rho_col, selected_depth, window=50):
-    """Plot well logs with highlighted selected depth"""
+def plot_well_logs(df, depth_col, vp_col, vs_col, rho_col, selected_depth=None):
+    """Create interactive well log visualization with highlighted depth"""
     # Create subplots
     fig = make_subplots(
         rows=1, 
-        cols=3,
-        subplot_titles=("P-Wave Velocity (VP)", "S-Wave Velocity (VS)", "Density (RHOB)"),
-        shared_y=True,
-        horizontal_spacing=0.05
+        cols=3, 
+        subplot_titles=("VP (m/s)", "VS (m/s)", "Density (g/cc)"),
+        shared_yaxes=True
     )
     
-    # Calculate window limits
-    depth_min = max(result_df[depth_col].min(), selected_depth - window)
-    depth_max = min(result_df[depth_col].max(), selected_depth + window)
+    # Add VP log
+    fig.add_trace(
+        go.Scatter(
+            x=df[vp_col], 
+            y=df[depth_col], 
+            mode='lines',
+            name='VP',
+            line=dict(color='blue', width=1)
+        ),
+        row=1, col=1
+    )
     
-    # Filter data to window
-    mask = (result_df[depth_col] >= depth_min) & (result_df[depth_col] <= depth_max)
-    df_window = result_df[mask]
+    # Add VS log
+    fig.add_trace(
+        go.Scatter(
+            x=df[vs_col], 
+            y=df[depth_col], 
+            mode='lines',
+            name='VS',
+            line=dict(color='green', width=1)
+        ),
+        row=1, col=2
+    )
     
-    # Plot VP
-    fig.add_trace(go.Scatter(
-        x=df_window[vp_col], y=df_window[depth_col],
-        mode='lines',
-        name='VP',
-        line=dict(color='blue', width=2),
-        hovertemplate='VP: %{x:.0f} m/s<br>Depth: %{y:.1f} m<extra></extra>'
-    ), row=1, col=1)
+    # Add Density log
+    fig.add_trace(
+        go.Scatter(
+            x=df[rho_col], 
+            y=df[depth_col], 
+            mode='lines',
+            name='Density',
+            line=dict(color='red', width=1)
+        ),
+        row=1, col=3
+    )
     
-    # Plot VS
-    fig.add_trace(go.Scatter(
-        x=df_window[vs_col], y=df_window[depth_col],
-        mode='lines',
-        name='VS',
-        line=dict(color='red', width=2),
-        hovertemplate='VS: %{x:.0f} m/s<br>Depth: %{y:.1f} m<extra></extra>'
-    ), row=1, col=2)
-    
-    # Plot RHOB
-    fig.add_trace(go.Scatter(
-        x=df_window[rho_col], y=df_window[depth_col],
-        mode='lines',
-        name='RHOB',
-        line=dict(color='green', width=2),
-        hovertemplate='RHOB: %{x:.2f} g/cc<br>Depth: %{y:.1f} m<extra></extra>'
-    ), row=1, col=3)
-    
-    # Add highlight line at selected depth
-    for col in range(1, 4):
-        fig.add_hline(
-            y=selected_depth, 
-            line=dict(color='orange', width=3, dash='dash'),
-            row=1, col=col
-        )
-    
-    # Update axes
-    fig.update_xaxes(title_text="VP (m/s)", row=1, col=1)
-    fig.update_xaxes(title_text="VS (m/s)", row=1, col=2)
-    fig.update_xaxes(title_text="RHOB (g/cc)", row=1, col=3)
-    fig.update_yaxes(title_text="Depth (m)", row=1, col=1)
+    # Add highlighted depth line if selected
+    if selected_depth is not None:
+        # Find the closest depth in the data
+        depth_idx = (np.abs(df[depth_col] - selected_depth)).argmin()
+        actual_depth = df[depth_col].iloc[depth_idx]
+        
+        # Add horizontal line across all subplots
+        for col in range(1, 4):
+            fig.add_hline(
+                y=actual_depth, 
+                line=dict(color="orange", width=2, dash="dash"),
+                row=1, 
+                col=col
+            )
     
     # Update layout
     fig.update_layout(
-        title=f"Well Logs - Selected Depth: {selected_depth:.1f} m ±{window} m window",
+        title="Well Log Visualization",
         height=600,
         showlegend=False,
-        yaxis=dict(autorange="reversed")
+        yaxis=dict(autorange="reversed", title="Depth (m)"),
+        yaxis2=dict(autorange="reversed"),
+        yaxis3=dict(autorange="reversed")
     )
+    
+    # Update x-axis titles
+    fig.update_xaxes(title_text="VP (m/s)", row=1, col=1)
+    fig.update_xaxes(title_text="VS (m/s)", row=1, col=2)
+    fig.update_xaxes(title_text="Density (g/cc)", row=1, col=3)
     
     return fig
 
@@ -553,43 +543,24 @@ def main():
     with tab1:
         st.title("🎯 VTI Anisotropy Analysis with Synthetic Seismic")
         
-        # Generate or load data
-        if uploaded_file is not None:
-            try:
-                # Check if file is not empty
-                if uploaded_file.size == 0:
-                    st.error("Uploaded file is empty. Using synthetic data instead.")
-                    use_synthetic = True
-                else:
-                    # Try to read the CSV file
-                    df = pd.read_csv(uploaded_file)
-                    
-                    if df.empty:
-                        st.error("CSV file contains no data. Using synthetic data instead.")
-                        use_synthetic = True
-                    else:
-                        st.success("CSV file loaded successfully!")
-                        use_synthetic = False
-            except Exception as e:
-                st.error(f"Error reading CSV file: {str(e)}. Using synthetic data instead.")
-                use_synthetic = True
-        else:
-            use_synthetic = True
-        
-        if use_synthetic:
-            # Generate synthetic data
-            st.info("Using synthetic data for demonstration")
-            depth = np.arange(1000, 3000, 0.5)
-            vp = 2000 + 1.5 * (depth - 1000) / 10 + np.random.normal(0, 50, len(depth))
-            vs = vp / 1.7 + np.random.normal(0, 30, len(depth))
-            rho = 2.1 + 0.0004 * (depth - 1000) + np.random.normal(0, 0.05, len(depth))
+        # Check if file is uploaded
+        if uploaded_file is None:
+            st.error("Please upload a CSV file to proceed with the analysis.")
+            st.info("Use the sidebar to upload your well log data in CSV format.")
+            return
             
-            df = pd.DataFrame({
-                'DEPTH': depth,
-                'VP': vp,
-                'VS': vs,
-                'RHOB': rho,
-            })
+        # Load data from uploaded file
+        try:
+            df = pd.read_csv(uploaded_file)
+            if df.empty:
+                st.error("Uploaded CSV file is empty. Please upload a valid file.")
+                return
+                
+            st.success("CSV file loaded successfully!")
+            
+        except Exception as e:
+            st.error(f"Error reading CSV file: {str(e)}")
+            return
         
         # Preprocess logs
         processed_df, vclay_col_used, phi_col_used = preprocess_logs(
@@ -646,6 +617,17 @@ def main():
             )
             st.plotly_chart(fig_wavelet, use_container_width=True)
         
+        # Well log visualization
+        st.subheader("Well Log Visualization")
+        well_log_fig = plot_well_logs(
+            result_df, 
+            depth_col, 
+            vp_col, 
+            vs_col, 
+            rho_col
+        )
+        st.plotly_chart(well_log_fig, use_container_width=True)
+        
         # Interface selection
         st.subheader("Interface Analysis")
         
@@ -654,38 +636,27 @@ def main():
             st.error(f"Depth column '{depth_col}' not found in data")
             return
         
-        # Create two columns for interface selection and well log display
-        col1, col2 = st.columns([1, 2])
+        interface_depth = st.slider(
+            "Select Interface Depth", 
+            min_value=float(result_df[depth_col].min()),
+            max_value=float(result_df[depth_col].max()),
+            value=float(result_df[depth_col].iloc[min(100, len(result_df)-2)]),
+            step=0.5
+        )
         
-        with col1:
-            interface_depth = st.slider(
-                "Select Interface Depth", 
-                min_value=float(result_df[depth_col].min()),
-                max_value=float(result_df[depth_col].max()),
-                value=float(result_df[depth_col].iloc[min(1000, len(result_df)-2)]),
-                step=0.5
-            )
-            
-            # Add window size control
-            window_size = st.slider(
-                "Well Log Display Window (m)",
-                min_value=10,
-                max_value=100,
-                value=50,
-                step=10,
-                help="Controls the vertical range displayed around the selected depth"
-            )
+        # Update well log visualization with selected depth
+        well_log_fig_selected = plot_well_logs(
+            result_df, 
+            depth_col, 
+            vp_col, 
+            vs_col, 
+            rho_col,
+            selected_depth=interface_depth
+        )
+        st.plotly_chart(well_log_fig_selected, use_container_width=True)
         
         # Find closest depth index
         interface_idx = (np.abs(result_df[depth_col] - interface_depth)).argmin()
-        
-        # Display well logs with highlighted depth
-        with col2:
-            well_log_fig = plot_well_logs_with_highlight(
-                result_df, depth_col, vp_col, vs_col, rho_col, 
-                interface_depth, window_size
-            )
-            st.plotly_chart(well_log_fig, use_container_width=True)
         
         if interface_idx < len(result_df) - 1:
             # Get properties for the interface
