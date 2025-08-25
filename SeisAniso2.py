@@ -27,6 +27,10 @@ st.sidebar.title("Configuration Parameters")
 uploaded_file = st.sidebar.file_uploader("Upload CSV file", type=["csv"], 
                                         help="Upload well log data with columns for VP, VS, RHOB, and DEPTH")
 
+# Debug info for uploaded file
+if uploaded_file is not None:
+    st.sidebar.info(f"File: {uploaded_file.name} ({uploaded_file.size} bytes)")
+
 # Initialize default column names
 vp_col = 'VP'
 vs_col = 'VS'
@@ -97,10 +101,15 @@ if uploaded_file is not None:
         else:
             # Try to read the CSV file with different encodings if needed
             try:
+                uploaded_file.seek(0)
                 df_preview = pd.read_csv(uploaded_file)
             except UnicodeDecodeError:
                 # Try with different encoding if UTF-8 fails
+                uploaded_file.seek(0)
                 df_preview = pd.read_csv(uploaded_file, encoding='latin-1')
+            except Exception as e:
+                st.sidebar.error(f"Error reading file: {str(e)}")
+                df_preview = pd.DataFrame()
             
             if df_preview.empty:
                 st.sidebar.error("CSV file contains no data")
@@ -130,6 +139,24 @@ if uploaded_file is not None:
                 
     except Exception as e:
         st.sidebar.error(f"Error reading file: {str(e)}")
+
+# Add sample data download option
+sample_data = pd.DataFrame({
+    'DEPTH': [1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009],
+    'VP': [2500, 2550, 2600, 2650, 2700, 2750, 2800, 2850, 2900, 2950],
+    'VS': [1200, 1220, 1240, 1260, 1280, 1300, 1320, 1340, 1360, 1380],
+    'RHOB': [2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0],
+    'GR': [45, 50, 55, 60, 65, 70, 75, 80, 85, 90]
+})
+
+csv_sample = sample_data.to_csv(index=False)
+st.sidebar.download_button(
+    "📋 Download Sample CSV",
+    csv_sample,
+    "sample_well_logs.csv",
+    "text/csv",
+    help="Download a sample CSV file to test the application"
+)
 
 # ==================== WAVELET GENERATION ====================
 def generate_ricker_wavelet(frequency, length, dt):
@@ -700,27 +727,88 @@ def main():
         
         # Check if file is uploaded
         if uploaded_file is None:
-            st.error("Please upload a CSV file to proceed with the analysis.")
-            st.info("Use the sidebar to upload your well log data in CSV format.")
+            st.info("""
+            **Welcome to VTI Anisotropy Analysis!**
+            
+            Please upload a CSV file using the sidebar to begin analysis.
+            You can also download the sample CSV file from the sidebar to test the application.
+            
+            Required columns: DEPTH, VP, VS, RHOB
+            Optional columns: GR, PHIT, SW, RT, VCLAY
+            """)
             return
             
         # Load data from uploaded file
         try:
-            # Try different encodings if UTF-8 fails
+            # Reset file pointer to beginning
+            uploaded_file.seek(0)
+            
+            # Try different encodings and delimiters
             try:
+                # First try with standard parameters
                 df = pd.read_csv(uploaded_file)
-            except UnicodeDecodeError:
-                df = pd.read_csv(uploaded_file, encoding='latin-1')
+            except Exception as e:
+                st.warning(f"First read attempt failed: {str(e)}. Trying alternative methods...")
                 
+                # Reset file pointer
+                uploaded_file.seek(0)
+                
+                # Try different encodings
+                encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+                for encoding in encodings:
+                    try:
+                        uploaded_file.seek(0)
+                        df = pd.read_csv(uploaded_file, encoding=encoding)
+                        st.success(f"Successfully read with {encoding} encoding")
+                        break
+                    except:
+                        continue
+                else:
+                    # If all encodings failed, try with engine parameter
+                    try:
+                        uploaded_file.seek(0)
+                        df = pd.read_csv(uploaded_file, engine='python')
+                        st.success("Successfully read with python engine")
+                    except:
+                        # Last resort: try with error handling
+                        uploaded_file.seek(0)
+                        df = pd.read_csv(uploaded_file, on_bad_lines='skip', encoding='latin-1')
+                        st.warning("Read with error skipping - some rows may be missing")
+            
+            # Check if DataFrame is empty
             if df.empty:
-                st.error("Uploaded CSV file is empty. Please upload a valid file.")
+                st.error("Uploaded CSV file is empty or could not be parsed. Please upload a valid CSV file.")
+                st.info("""
+                **Tips for valid CSV files:**
+                - Ensure your file has column headers in the first row
+                - Use comma separation (not semicolon or tab)
+                - Check that the file is not corrupted
+                - Try opening the file in a text editor to verify the format
+                """)
                 return
                 
-            st.success("CSV file loaded successfully!")
+            st.success(f"CSV file loaded successfully! Shape: {df.shape}")
+            st.write(f"Columns found: {list(df.columns)}")
             
         except Exception as e:
             st.error(f"Error reading CSV file: {str(e)}")
-            st.info("Please check that your file is a valid CSV with proper column headers.")
+            st.info("""
+            **Common solutions:**
+            1. Check that your file is a valid CSV format
+            2. Ensure the file has column headers
+            3. Try saving your file with a different encoding (UTF-8 recommended)
+            4. Open the file in a text editor to verify the format
+            5. If using Excel, use 'Save As' and choose CSV format
+            """)
+            
+            # Provide more detailed error information
+            try:
+                uploaded_file.seek(0)
+                sample_content = uploaded_file.read(200).decode('utf-8', errors='ignore')
+                st.text_area("First 200 characters of file:", sample_content, height=100)
+            except:
+                st.write("Could not preview file content")
+            
             return
         
         # Preprocess logs
@@ -1035,3 +1123,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
